@@ -20,10 +20,16 @@ var index:int = 0 # Index of structure being built
 
 @onready var kitOptionButton = $"../CanvasLayer/OptionButton"
 
+# Default margin between selector and item (or ground) below
+const SELECTOR_MARGIN = 0.25
+
 # Name -> GLTF folder, for each kit found in kitsPath
 var kits = {}
 
 var plane:Plane # Used for raycasting mouse
+
+# Used to detect cell change on mouse move
+var last_cell = Vector3i()
 
 func _ready():
 	list_kits()
@@ -87,8 +93,16 @@ func _process(delta):
 		view_camera.project_ray_origin(get_viewport().get_mouse_position()),
 		view_camera.project_ray_normal(get_viewport().get_mouse_position()))
 
-	var gridmap_position = Vector3(round(world_position.x), 0, round(world_position.z))
+	var cell_x = round(world_position.x)
+	var cell_z = round(world_position.z)
+	var gridmap_position = Vector3(cell_x, 0, cell_z)
 	selector.position = lerp(selector.position, gridmap_position, delta * 40)
+	
+	# Detect cell change
+	var cell = Vector3i(cell_x, 0, cell_z)
+	if cell != last_cell:
+		update_selector_height(cell)
+	last_cell = cell
 	
 	action_build(gridmap_position)
 	action_demolish(gridmap_position)
@@ -115,6 +129,7 @@ func action_build(gridmap_position):
 		var previous_tile = mapNode.get_cell_item(gridmap_position)
 		var yRot = selector.get_rotation_degrees().y
 		mapNode.set_cell_item(gridmap_position, index, yRot)
+		update_selector_height(gridmap_position)
 		
 		if previous_tile != index:
 			map.cash -= structures[index].price
@@ -125,6 +140,7 @@ func action_build(gridmap_position):
 func action_demolish(gridmap_position):
 	if Input.is_action_just_pressed("demolish"):
 		mapNode.clear_cell_item(gridmap_position)
+		update_selector_height(gridmap_position)
 
 # Rotates the 'cursor' 90 degrees
 
@@ -135,13 +151,15 @@ func action_rotate():
 # Toggle between structures to build
 
 func action_structure_toggle():
+	var previous = index
 	if Input.is_action_just_pressed("structure_next"):
 		index = wrap(index + 1, 0, structures.size())
 	
 	if Input.is_action_just_pressed("structure_previous"):
 		index = wrap(index - 1, 0, structures.size())
 
-	update_structure()
+	if index != previous:
+		update_structure()
 
 # Update the structure visual in the 'cursor'
 
@@ -153,8 +171,14 @@ func update_structure():
 	# Create new structure preview in selector
 	var _model = structures[index].model.instantiate()
 	selector_container.add_child(_model)
-	_model.position.y += 0.25
-	
+
+func update_selector_height(currentCell: Vector3i):
+	#print("Cell changed to %s" % currentCell)
+	var aabb = mapNode.get_cell_aabb(currentCell)
+	selector_container.position.y = SELECTOR_MARGIN
+	if aabb != null:
+		selector_container.position.y += aabb.size.y
+
 func update_cash():
 	cash_display.text = "$" + str(map.cash)
 

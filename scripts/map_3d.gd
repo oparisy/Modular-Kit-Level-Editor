@@ -24,12 +24,18 @@ func set_cell_item(cell:Vector3i, index:int, yRotationDegrees:float):
 	_model.set_rotation_degrees(Vector3(0, yRotationDegrees, 0))
 	add_child(_model)
 
-	# Update data structure	
+	# Update data structure
 	var cellObj = {}
 	cellObj.index = index
 	cellObj.yRotationDegrees = yRotationDegrees
 	cellObj.model = _model
+	cellObj.aabb = compute_aabb(_model)
 	_set_cell(cell, cellObj)
+
+# Return the AABB of the item at this position, or null if empty
+func get_cell_aabb(cell: Vector3i):
+	var cellObj = _get_cell(cell)
+	return null if cellObj == null else cellObj.aabb
 
 func clear_cell_item(cell:Vector3i):
 	var cellObj = _get_cell(cell)
@@ -59,3 +65,12 @@ func _set_cell(cell:Vector3i, obj):
 
 func _erase_cell(cell:Vector3i):
 	cells.erase(_to_cell_coords(cell))
+
+# TODO Should we compute and cache those at loading time?
+# It's not clear if we can compute them from PackedScene though
+func compute_aabb(node : Node3D) -> AABB:
+	#print("Node class: ", node.get_class())
+	var result = (node as MeshInstance3D).get_aabb() if node is MeshInstance3D else AABB()
+	for c in node.get_children():
+		result = result.merge(compute_aabb(c))
+	return result
