@@ -1,5 +1,7 @@
 extends Node3D
 
+@export var kitsPath : String # Path on disk to Kenney's kits
+
 @export var structures: Array[Structure] = []
 
 var map:DataMap
@@ -12,10 +14,22 @@ var index:int = 0 # Index of structure being built
 @export var gridmap:GridMap
 @export var cash_display:Label
 
+@onready var kitOptionButton = $"../CanvasLayer/OptionButton"
+
+# Name -> GLTF folder, for each kit found in kitsPath
+var kits = {}
+
 var plane:Plane # Used for raycasting mouse
 
 func _ready():
 	
+	list_kits()
+	for kitName in kits:
+		kitOptionButton.add_item(kitName)
+	
+	setup()
+
+func setup():
 	map = DataMap.new()
 	plane = Plane(Vector3.UP, Vector3.ZERO)
 	
@@ -36,6 +50,34 @@ func _ready():
 	
 	update_structure()
 	update_cash()
+
+# Browse available kits, fill "kits" Dictionary
+func list_kits():
+	var dir = DirAccess.open(kitsPath)
+	if dir == null:
+		var error = "Error %s" % DirAccess.get_open_error()
+		OS.alert('Please specify a valid kits path (use kitsPath property)', error)
+		get_tree().quit()
+	
+	var gltfFolders = []
+	searchForFoldersNamed(kitsPath, "GLTF format", gltfFolders)
+	for found in gltfFolders:
+		# Keep it simple, we expect a given format
+		var kitName = found.get_base_dir().get_base_dir().get_file()
+		kits[kitName] = found
+
+func searchForFoldersNamed(path:String, searchedName: String, result: Array):
+	var dir = DirAccess.open(path)
+	dir.list_dir_begin()
+	var fileName = dir.get_next()	
+	while fileName != "":
+		if dir.current_is_dir():
+			var fullPath = path + "/" + fileName
+			if fileName == searchedName:
+				result.append(fullPath)
+			else:
+				searchForFoldersNamed(fullPath, searchedName, result)
+		fileName = dir.get_next()
 
 func _process(delta):
 	
@@ -72,10 +114,24 @@ func get_mesh(packed_scene):
 					
 					return prop_value.duplicate()
 
+
+# Return true if some Control currently has the focus
+# (so we are probably in the process of interacting with it)
+# We expect Controls to release focus when left (see OptionButton script)
+func someControlHasFocus():
+	var withFocus = get_viewport().gui_get_focus_owner()
+	return withFocus != null
+
 # Build (place) a structure
 
 func action_build(gridmap_position):
-	if Input.is_action_just_pressed("build"):
+	# Testing if we are in a control avoids reacting here to clicks on it
+	# "Input's methods reflect the global input state and are not affected by
+	# Control.accept_event() or Viewport.set_input_as_handled(), as those
+	# methods only deal with the way input is propagated in the SceneTree."
+	# => so we have to cheat a little
+	# TODO It was recommanded that I use _unhandled_input
+	if Input.is_action_just_pressed("build") && !someControlHasFocus():
 		
 		var previous_tile = gridmap.get_cell_item(gridmap_position)
 		gridmap.set_cell_item(gridmap_position, index, gridmap.get_orthogonal_index_from_basis(selector.basis))
@@ -154,3 +210,45 @@ func action_load():
 			gridmap.set_cell_item(Vector3i(cell.position.x, 0, cell.position.y), cell.structure, cell.orientation)
 			
 		update_cash()
+
+
+func _on_option_button_item_selected(index):
+	var selectedKit = kitOptionButton.get_item_text(index)
+	var pathToModels = kits[selectedKit]
+	print("%s selected" % selectedKit)
+	print("Loading models from %s" % pathToModels)
+	
+	var loadedModels = []
+	var time_start = Time.get_ticks_msec()
+	var dir = DirAccess.open(pathToModels)
+	for modelFile in dir.get_files():
+		var loader = GLTFDocument.new()
+		var loaded = GLTFState.new()
+		var toLoad = pathToModels + "/" + modelFile
+		var err = loader.append_from_file(toLoad, loaded)
+		if (err != OK):
+			print("Error %s occurred while loading model %s" % [err, toLoad])
+		else:
+			# TODO Do something with loaded model (we want a PackedScene)
+			print("Loaded %s" % modelFile)
+			var model : Node = loader.generate_scene(loaded)
+			var scene = PackedScene.new()
+			err = scene.pack(model)
+			if err != OK:
+				print("Error %s occurred while packing %s" % [err, toLoad])
+			else:
+				loadedModels.append(scene)
+
+	var time_now = Time.get_ticks_msec()
+	var elapsed = time_now - time_start
+	print("Models loading took %sms" % elapsed)
+	
+	structures.clear()
+	for model in loadedModels:
+		var structure = Structure.new()
+		structure.model = model
+		structure.price= 42
+		structures.append(structure)
+	
+	setup()
+	gridmap.clear()
