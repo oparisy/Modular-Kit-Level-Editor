@@ -6,13 +6,17 @@ extends Node3D
 
 var map:DataMap
 
+#var mapData: DataMap3D
+
 var index:int = 0 # Index of structure being built
 
 @export var selector:Node3D # The 'cursor'
 @export var selector_container:Node3D # Node that holds a preview of the structure
 @export var view_camera:Camera3D # Used for raycasting mouse
-@export var gridmap:GridMap
 @export var cash_display:Label
+
+# Map assets (instanciated scenes) will be under this node
+@onready var mapNode = $"../Map"
 
 @onready var kitOptionButton = $"../CanvasLayer/OptionButton"
 
@@ -22,7 +26,6 @@ var kits = {}
 var plane:Plane # Used for raycasting mouse
 
 func _ready():
-	
 	list_kits()
 	for kitName in kits:
 		kitOptionButton.add_item(kitName)
@@ -31,22 +34,10 @@ func _ready():
 
 func setup():
 	map = DataMap.new()
+
 	plane = Plane(Vector3.UP, Vector3.ZERO)
 	
-	# Create new MeshLibrary dynamically, can also be done in the editor
-	# See: https://docs.godotengine.org/en/stable/tutorials/3d/using_gridmaps.html
-	
-	var mesh_library = MeshLibrary.new()
-	
-	for structure in structures:
-		
-		var id = mesh_library.get_last_unused_item_id()
-		
-		mesh_library.create_item(id)
-		mesh_library.set_item_mesh(id, get_mesh(structure.model))
-		mesh_library.set_item_mesh_transform(id, Transform3D())
-		
-	gridmap.mesh_library = mesh_library
+	mapNode.structures = structures
 	
 	update_structure()
 	update_cash()
@@ -61,6 +52,7 @@ func list_kits():
 	
 	var gltfFolders = []
 	searchForFoldersNamed(kitsPath, "GLTF format", gltfFolders)
+
 	for found in gltfFolders:
 		# Keep it simple, we expect a given format
 		var kitName = found.get_base_dir().get_base_dir().get_file()
@@ -101,20 +93,6 @@ func _process(delta):
 	action_build(gridmap_position)
 	action_demolish(gridmap_position)
 
-# Retrieve the mesh from a PackedScene, used for dynamically creating a MeshLibrary
-
-func get_mesh(packed_scene):
-	var scene_state:SceneState = packed_scene.get_state()
-	for i in range(scene_state.get_node_count()):
-		if(scene_state.get_node_type(i) == "MeshInstance3D"):
-			for j in scene_state.get_node_property_count(i):
-				var prop_name = scene_state.get_node_property_name(i, j)
-				if prop_name == "mesh":
-					var prop_value = scene_state.get_node_property_value(i, j)
-					
-					return prop_value.duplicate()
-
-
 # Return true if some Control currently has the focus
 # (so we are probably in the process of interacting with it)
 # We expect Controls to release focus when left (see OptionButton script)
@@ -130,11 +108,13 @@ func action_build(gridmap_position):
 	# Control.accept_event() or Viewport.set_input_as_handled(), as those
 	# methods only deal with the way input is propagated in the SceneTree."
 	# => so we have to cheat a little
-	# TODO It was recommanded that I use _unhandled_input
+	# TODO It was recommended that I use _unhandled_input
 	if Input.is_action_just_pressed("build") && !someControlHasFocus():
 		
-		var previous_tile = gridmap.get_cell_item(gridmap_position)
-		gridmap.set_cell_item(gridmap_position, index, gridmap.get_orthogonal_index_from_basis(selector.basis))
+		# Update data structure
+		var previous_tile = mapNode.get_cell_item(gridmap_position)
+		var yRot = selector.get_rotation_degrees().y
+		mapNode.set_cell_item(gridmap_position, index, yRot)
 		
 		if previous_tile != index:
 			map.cash -= structures[index].price
@@ -144,7 +124,7 @@ func action_build(gridmap_position):
 
 func action_demolish(gridmap_position):
 	if Input.is_action_just_pressed("demolish"):
-		gridmap.set_cell_item(gridmap_position, -1)
+		mapNode.clear_cell_item(gridmap_position)
 
 # Rotates the 'cursor' 90 degrees
 
@@ -185,13 +165,13 @@ func action_save():
 		print("Saving map...")
 		
 		map.structures.clear()
-		for cell in gridmap.get_used_cells():
+		for cell in mapNode.get_used_cells():
 			
 			var data_structure:DataStructure = DataStructure.new()
 			
 			data_structure.position = Vector2i(cell.x, cell.z)
-			data_structure.orientation = gridmap.get_cell_item_orientation(cell)
-			data_structure.structure = gridmap.get_cell_item(cell)
+			data_structure.orientation = mapNode.get_cell_item_orientation(cell)
+			data_structure.structure = mapNode.get_cell_item(cell)
 			
 			map.structures.append(data_structure)
 			
@@ -201,13 +181,13 @@ func action_load():
 	if Input.is_action_just_pressed("load"):
 		print("Loading map...")
 		
-		gridmap.clear()
+		mapNode.clear()
 		
 		map = ResourceLoader.load("user://map.res")
 		if not map:
 			map = DataMap.new()
 		for cell in map.structures:
-			gridmap.set_cell_item(Vector3i(cell.position.x, 0, cell.position.y), cell.structure, cell.orientation)
+			mapNode.set_cell_item(Vector3i(cell.position.x, 0, cell.position.y), cell.structure, cell.orientation)
 			
 		update_cash()
 
@@ -251,4 +231,4 @@ func _on_option_button_item_selected(index):
 		structures.append(structure)
 	
 	setup()
-	gridmap.clear()
+	mapNode.clear()
