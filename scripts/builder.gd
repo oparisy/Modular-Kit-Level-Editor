@@ -128,7 +128,7 @@ func action_build(gridmap_position):
 		# Update data structure
 		var previous_tile = mapNode.get_cell_item(gridmap_position)
 		var yRot = selector.get_rotation_degrees().y
-		mapNode.set_cell_item(gridmap_position, index, yRot)
+		mapNode.push_cell_item(gridmap_position, index, yRot)
 		update_selector_height(gridmap_position)
 		
 		if previous_tile != index:
@@ -139,7 +139,7 @@ func action_build(gridmap_position):
 
 func action_demolish(gridmap_position):
 	if Input.is_action_just_pressed("demolish"):
-		mapNode.clear_cell_item(gridmap_position)
+		mapNode.clear_top_cell_item(gridmap_position)
 		update_selector_height(gridmap_position)
 
 # Rotates the 'cursor' 90 degrees
@@ -174,10 +174,8 @@ func update_structure():
 
 func update_selector_height(currentCell: Vector3i):
 	#print("Cell changed to %s" % currentCell)
-	var aabb = mapNode.get_cell_aabb(currentCell)
 	selector_container.position.y = SELECTOR_MARGIN
-	if aabb != null:
-		selector_container.position.y += aabb.size.y
+	selector_container.position.y += mapNode.get_cell_height(currentCell)
 
 func update_cash():
 	cash_display.text = "$" + str(map.cash)
